@@ -1,0 +1,6 @@
+python 3.9.0
+pytorch 1.12.0
+torchvision 0.13.0
+
+
+python main.py -a resnet32 --dataset cifar100 --epochs 0 --phase 5 --baseclass 50 --basetraining --incremental --resume save_model/cifar100/resnet32/1-10_9-59-52-757/checkpoint.pth.tar --Hidden 5000 --gpu 0
