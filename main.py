@@ -6,7 +6,7 @@ import warnings
 from enum import Enum
 
 from parsers import args
-
+import math
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -20,7 +20,18 @@ import torch.utils.data.distributed
 import torchvision.models as models
 import numpy as np
 import tqdm
+from torchsummary import summary
+import torch_rbf as rbf 
+import rbf_network as rbf_net
+import csv
+
+
+
+
 best_acc1 = 0
+torch.manual_seed(42)
+
+
 
 class Flatten(nn.Module):
     def forward(self, x):
@@ -370,6 +381,39 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if i % args.print_freq == 0:
             progress.display(i)
 
+def GKE(X_0_cnn,beta=1,I=100):  #change I here
+    
+    X_0_ke= np.zeros((X_0_cnn.size(0),I))
+
+    for i in range(X_0_cnn.size(0)):
+
+        idx=random.randint(0, X_0_cnn.size(0)-1)
+
+        for j in range(I):
+
+            X_0_ke[i][j]=math.exp(-beta*torch.square(torch.norm(X_0_cnn[i] - X_0_cnn[idx])))
+
+    X_0_ke=torch.tensor(X_0_ke).to(device='cuda:0')
+    X_0_ke=X_0_ke.to(torch.float32)
+
+    
+    return X_0_ke
+
+
+
+def GKE2(X_0_cnn, beta=1, I=5):  #change I here
+    
+    # print(idx)
+    idx = torch.randint(0, X_0_cnn.size(0), (I, ))
+    norms = torch.norm(X_0_cnn[:, None] - X_0_cnn[idx], dim=-1)
+    print(norms.shape)
+    X_0_ke = torch.exp(-beta * torch.square(norms))
+    print(X_0_ke.shape)
+    return X_0_ke.to(device='cuda:0').to(torch.float32)
+
+
+
+
 def cls_align(train_loader, wrapped_model, args):
     if hasattr(wrapped_model, 'module'):
         model = wrapped_model.module
@@ -384,32 +428,77 @@ def cls_align(train_loader, wrapped_model, args):
     else:
         model.maxpool = nn.Sequential()
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:2])
+                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
+    
+    new_model2 = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
+                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:1])
     model.eval()
 
-    auto_cor = torch.zeros(model.fc[-1].weight.size(1), model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True)
-    crs_cor = torch.zeros(model.fc[-1].weight.size(1), args.num_classes).cuda(args.gpu, non_blocking=True)
+    
 
-    with torch.no_grad():
-        for epoch in range(1):
-            pbar = tqdm.tqdm(enumerate(train_loader), desc='Re-Alignment Base', total=len(train_loader), unit='batch')
-            for i, (images, target) in pbar:
-                images = images.cuda(args.gpu, non_blocking=True)
-                target = target.cuda(args.gpu, non_blocking=True)
+    print(summary(new_model2,input_size=(3, 32, 32)))
+    print(summary(new_model,input_size=(3, 32, 32)))
+    print(summary(model,input_size=(3, 32, 32)))
+    print(model.fc[-3].weight.size(1))
 
-                new_activation = new_model(images)
-                label_onehot = F.one_hot(target, args.num_classes).float()
-                auto_cor += torch.t(new_activation) @ new_activation
-                crs_cor += torch.t(new_activation) @ (label_onehot)
-                # pre_output = model(images)
-                # pre_loss = F.cross_entropy(pre_output, labels)
-                # softmax = nn.Softmax(dim=1)
-    # R = torch.pinverse(auto_cor + args.rg * torch.eye(model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True))
-    print('numpy inverse')
-    R = np.mat(auto_cor.cpu().numpy() + args.rg * np.eye(model.fc[-1].weight.size(1))).I
+
+    I=5                                                 #change I here
+
+    
+
+
+    auto_cor = torch.zeros(I,I).cuda(args.gpu, non_blocking=True)
+    crs_cor = torch.zeros(I, args.num_classes).cuda(args.gpu, non_blocking=True)
+
+    print("auto crs",auto_cor.size(),crs_cor.size())
+    with open('X_0_cnn1.csv',  mode='a+', encoding="ISO-8859-1", newline='') as f:
+
+        with torch.no_grad():
+            for epoch in range(1):
+                pbar = tqdm.tqdm(enumerate(train_loader), desc='Re-Alignment Base', total=len(train_loader), unit='batch')
+                #idx = torch.randint(0, 256, (I, )).to(device='cuda:0')
+                for i, (images, target) in pbar:
+                    images = images.cuda(args.gpu, non_blocking=True)
+                    target = target.cuda(args.gpu, non_blocking=True)
+
+                    X_0_cnn = new_model(images)
+                    new_activation=GKE2(X_0_cnn,beta=1,I=5)  #change I here
+
+                    
+                    # create the csv writer
+                    writer = csv.writer(f)
+
+                    # write a row to the csv file
+                    writer.writerow(X_0_cnn.float().cpu().numpy())
+
+                    
+
+
+
+
+                    #new_activation=GKE2(X_0_cnn,beta=1,I=100,idx)
+
+                    #new_activation = new_model(images)
+
+
+                    print(new_activation.size())
+                    #print(new_activation.size()[0])
+                    label_onehot = F.one_hot(target, args.num_classes).float()
+                
+                    auto_cor += torch.t(new_activation) @ new_activation
+                    crs_cor += torch.t(new_activation) @ (label_onehot)
+                    # pre_output = model(images)
+                    # pre_loss = F.cross_entropy(pre_output, labels)
+                    # softmax = nn.Softmax(dim=1)
+        # R = torch.pinverse(auto_cor + args.rg * torch.eye(model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True))
+        print('numpy inverse')
+    R = np.mat(auto_cor.cpu().numpy() + args.rg * np.eye(I)).I
     R = torch.tensor(R).float().cuda(args.gpu, non_blocking=True)
     Delta = R @ crs_cor
+    print(Delta.size())
     model.fc[-1].weight = torch.nn.parameter.Parameter(torch.t(0.9*Delta.float()))
+    #print(list(model.parameters()[-1]))
+  
     return R
 
 def IL_align(train_loader, wrapped_model, args, R, repeat):
@@ -427,7 +516,7 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
     else:
         model.maxpool = nn.Sequential()
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:2])
+                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
     model.eval()
 
     #auto_cor = torch.zeros(model.fc[-1].weight.size(1), model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True)
@@ -441,8 +530,15 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
                 images = images.cuda(args.gpu, non_blocking=True)
                 target = target.cuda(args.gpu, non_blocking=True)
 
-                new_activation = new_model(images)
+                #new_activation = new_model(images)
+                X_0_cnn = new_model(images)
+               
+                new_activation=GKE2(X_0_cnn,beta=1,I=500)  # change I here
+
+
                 new_activation = new_activation.double()
+
+
                 label_onehot = F.one_hot(target, args.num_classes).double()
 
                 R = R - R@new_activation.t()@torch.pinverse(torch.eye(images.size(0)).cuda(args.gpu, non_blocking=True) +
@@ -458,7 +554,7 @@ def cpnet(wrapped_model, train_loader, args):
     if hasattr(wrapped_model, 'module'):
         model = wrapped_model.module
     else:
-        model = wrapped_model
+        model = wrapped_modelmodel
     if hasattr(model, 'layer4'):
         pass
     else:
@@ -495,6 +591,18 @@ def validate(val_loader, model, criterion, args, print=True):
     # switch to evaluate mode
     model.eval()
 
+    new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
+                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
+    
+    new_model2= torch.nn.Sequential(model.fc[-1])
+
+    new_model3=torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
+                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:1])
+    #print(summary(new_model2,input_size=(256, 100)))
+    
+    
+
+
     with torch.no_grad():
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
@@ -504,7 +612,23 @@ def validate(val_loader, model, criterion, args, print=True):
                 target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output = model(images)
+                
+            
+            
+
+            X_0_cnn = new_model3(images)
+               
+            output=GKE2(X_0_cnn,beta=1,I=500)
+            output= new_model2(output)
+
+           # print(output)
+
+            
+            #output = model(images)
+
+            #print(model.type())
+
+
             if isinstance(criterion, nn.MSELoss):
                 target_onehot = F.one_hot(target, args.num_classes).float()
             else:
