@@ -21,10 +21,15 @@ import torchvision.models as models
 import numpy as np
 import tqdm
 from torchsummary import summary
-
+import torch_rbf as rbf 
+import rbf_network as rbf_net
 import csv
+import pickle
 
+with open('D:\FEW Shot Class Incremental Learning\IE506 project\ACIL_BASELINE-20240219T103801Z-001\centers_new.pkl', 'rb') as f:
+    data = pickle.load(f)
 
+C=torch.Tensor(data).to(device='cuda:0')
 
 
 best_acc1 = 0
@@ -400,7 +405,7 @@ def GKE(X_0_cnn,beta=1,I=100):  #change I here
 
 
 
-def GKE2(X_0_cnn, beta=1, I=5):  #change I here
+def GKE2(X_0_cnn, beta=1, I=5000):  #change I here
     
     # print(idx)
     idx = torch.randint(0, X_0_cnn.size(0), (I, ))
@@ -409,6 +414,34 @@ def GKE2(X_0_cnn, beta=1, I=5):  #change I here
     X_0_ke = torch.exp(-beta * torch.square(norms))
     print(X_0_ke.shape)
     return X_0_ke.to(device='cuda:0').to(torch.float32)
+
+
+def GKE3(X,C,beta=10,I=5000):
+    X_0_ke=torch.exp(-beta*torch.norm(X[:,None] - C,dim=2))
+    return X_0_ke.to(device='cuda:0').to(torch.float32)
+
+
+
+
+
+def GKE4(X,C,beta=1,I=5000):
+    m = X.shape[0]
+    p = C.shape[0]
+    K = np.zeros((m, p))
+    
+    for i in range(m):
+        for j in range(p):
+            diff = (X[i] - C[j]).cpu()
+            K[i, j] = np.exp(-np.dot(diff, diff))
+
+    K=torch.tensor(K).to(device='cuda:0').to(torch.float32)
+    
+    return K
+
+
+
+
+
 
 
 
@@ -438,10 +471,10 @@ def cls_align(train_loader, wrapped_model, args):
     print(summary(new_model2,input_size=(3, 32, 32)))
     print(summary(new_model,input_size=(3, 32, 32)))
     print(summary(model,input_size=(3, 32, 32)))
-    print(model.fc[-3].weight.size(1))
+    #print(model.fc[-3].weight.size(1))
 
 
-    I=5                                                 #change I here
+    I=5000                                                 #change I here
 
     
 
@@ -449,10 +482,12 @@ def cls_align(train_loader, wrapped_model, args):
     auto_cor = torch.zeros(I,I).cuda(args.gpu, non_blocking=True)
     crs_cor = torch.zeros(I, args.num_classes).cuda(args.gpu, non_blocking=True)
 
-    print("auto crs",auto_cor.size(),crs_cor.size())
-    with open('X_0_cnn1.csv',  mode='a+', encoding="ISO-8859-1", newline='') as f:
+    #print("auto crs",auto_cor.size(),crs_cor.size())
+    data=[]
 
-        with torch.no_grad():
+    
+
+    with torch.no_grad():
             for epoch in range(1):
                 pbar = tqdm.tqdm(enumerate(train_loader), desc='Re-Alignment Base', total=len(train_loader), unit='batch')
                 #idx = torch.randint(0, 256, (I, )).to(device='cuda:0')
@@ -460,15 +495,24 @@ def cls_align(train_loader, wrapped_model, args):
                     images = images.cuda(args.gpu, non_blocking=True)
                     target = target.cuda(args.gpu, non_blocking=True)
 
+                    #X_0_cnn = new_model2(images)
                     X_0_cnn = new_model(images)
-                    new_activation=GKE2(X_0_cnn,beta=1,I=5)  #change I here
+
+
+                    #new_activation =X_0_cnn
+                    
+                    new_activation=GKE3(X_0_cnn,C,beta=10,I=5000)  #change I here
 
                     
                     # create the csv writer
-                    writer = csv.writer(f)
+                    #writer = csv.writer(f)
 
                     # write a row to the csv file
-                    writer.writerow(X_0_cnn.float().cpu().numpy())
+                    #writer.writerow(X_0_cnn.float().cpu().numpy())
+                    #data.append(X_0_cnn1)
+                    
+
+                    #new_activation=GKE3(X_0_cnn,C,beta=10,I=5000)
 
                     
 
@@ -490,13 +534,18 @@ def cls_align(train_loader, wrapped_model, args):
                     # pre_loss = F.cross_entropy(pre_output, labels)
                     # softmax = nn.Softmax(dim=1)
         # R = torch.pinverse(auto_cor + args.rg * torch.eye(model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True))
-        print('numpy inverse')
+    print('numpy inverse')
+    
     R = np.mat(auto_cor.cpu().numpy() + args.rg * np.eye(I)).I
     R = torch.tensor(R).float().cuda(args.gpu, non_blocking=True)
     Delta = R @ crs_cor
-    print(Delta.size())
+    print("WFCN",model.fc[-1],Delta.size(),Delta)
+    #with open('X_0_cnn5000new.pkl','wb') as f:
+        #pickle.dump(data,f)
+  
     model.fc[-1].weight = torch.nn.parameter.Parameter(torch.t(0.9*Delta.float()))
     #print(list(model.parameters()[-1]))
+    
   
     return R
 
@@ -516,6 +565,9 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
         model.maxpool = nn.Sequential()
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
                                     model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
+    
+    new_model2 = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
+                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:1])
     model.eval()
 
     #auto_cor = torch.zeros(model.fc[-1].weight.size(1), model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True)
@@ -530,9 +582,9 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
                 target = target.cuda(args.gpu, non_blocking=True)
 
                 #new_activation = new_model(images)
-                X_0_cnn = new_model(images)
+                X_0_cnn = new_model2(images)
                
-                new_activation=GKE2(X_0_cnn,beta=1,I=500)  # change I here
+                new_activation=GKE3(X_0_cnn,C,beta=10,I=5000)  # change I here
 
 
                 new_activation = new_activation.double()
@@ -593,11 +645,13 @@ def validate(val_loader, model, criterion, args, print=True):
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
                                     model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
     
-    new_model2= torch.nn.Sequential(model.fc[-1])
-
-    new_model3=torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
+    new_model2 = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
                                     model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:1])
-    #print(summary(new_model2,input_size=(256, 100)))
+    
+    
+
+    
+    print(summary(new_model,input_size=(3, 32, 32)))
     
     
 
@@ -615,12 +669,17 @@ def validate(val_loader, model, criterion, args, print=True):
             
             
 
-            X_0_cnn = new_model3(images)
+            X_0_cnn = new_model(images)
+            print(X_0_cnn.size())
                
-            output=GKE2(X_0_cnn,beta=1,I=500)
-            output= new_model2(output)
+            output=GKE3(X_0_cnn,C,beta=10,I=5000)
+            #output= new_model2(output)
 
-           # print(output)
+            print(output)
+
+            output = torch.dot(output,model.fc[-1].weight)
+
+            print("validate",output.size())
 
             
             #output = model(images)
