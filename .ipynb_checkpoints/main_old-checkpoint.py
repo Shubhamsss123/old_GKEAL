@@ -6,7 +6,7 @@ import warnings
 from enum import Enum
 
 from parsers import args
-import math
+
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -20,30 +20,14 @@ import torch.utils.data.distributed
 import torchvision.models as models
 import numpy as np
 import tqdm
-from torchsummary import summary
-
-import csv
-import pickle
-
-with open('centers_new.pkl', 'rb') as f:
-    data = pickle.load(f)
-
-C=torch.Tensor(data).to(device='cuda:0')
-
-
 best_acc1 = 0
-torch.manual_seed(42)
-
-
 
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
 def main():
-    print("Arguments are ",args,sep=" => ")
-    print("-"*50)
-    
+    print(args)
     if args.resume:
         print('loading model saving directory!')
         if 'model_best.pth.tar' in args.resume:
@@ -51,7 +35,7 @@ def main():
         elif 'checkpoint.pth.tar' in args.resume:
             dirname = args.resume.replace('/checkpoint.pth.tar', '')
         args.dirname = dirname
-        print("model directory name is : ",args.dirname,sep=" => ")
+        print(args.dirname)
     else:
         print('creating model saving dir!')
         dirname = ''
@@ -83,9 +67,8 @@ def main():
                       'from checkpoints.')
 
     if args.gpu is not None:
-        print("gpu is not None hence warning ; gpu is",args.gpu,sep="=>")
-        
-        print('You have chosen a specific GPU. This will completely  disable data parallelism.')
+        warnings.warn('You have chosen a specific GPU. This will completely '
+                      'disable data parallelism.')
 
     if args.dist_url == "env://" and args.world_size == -1:
         args.world_size = int(os.environ["WORLD_SIZE"])
@@ -101,8 +84,6 @@ def main():
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
-        
-        print("Main worker calling without multiprocessing_distributed")
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
 
@@ -112,22 +93,17 @@ def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
 
     if args.gpu is not None:
-        print("Using GPU: {} for training here".format(args.gpu))
+        print("Use GPU: {} for training".format(args.gpu))
 
     from datasets import train_loader, val_loader, train_sampler, num_classes
     args.full_classes = num_classes
     if args.basetraining or args.incremental:
         #from datasets import train_loader_base, val_loader_base, train_sampler, IL_dataset_train, IL_dataset_val, num_classes
-        print("basetrainng or incremental args is True")
+
         from datasets import get_IL_loader
-        
-        print("get_IL_loader calling with num_classes",num_classes,sep=' => ')
         train_loader_base, val_loader_base, \
         IL_dataset_train, IL_dataset_val, = get_IL_loader(train_loader.dataset, val_loader.dataset, num_classes)
-        
         num_classes = args.baseclass
-        
-        print("for cifar num_classes or args.baseclass is",num_classes,sep=" => ")
         train_loader, val_loader = train_loader_base, val_loader_base
     '''
         train_loader, val_loader = train_loader_base, val_loader_base
@@ -149,7 +125,7 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> using pre-trained model '{}'".format(args.arch))
         model = models.__dict__[args.arch](pretrained=True)
     else:
-        print("=> creating model '{}' since pretrained is False".format(args.arch))
+        print("=> creating model '{}'".format(args.arch))
         if args.dataset in ['imagenet', 'imagenet100']:
             model = models.__dict__[args.arch](num_classes)
             args.num_classes = num_classes
@@ -157,12 +133,10 @@ def main_worker(gpu, ngpus_per_node, args):
             if args.arch in ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']:
                 import resnet_wide as model_cifar
             else:
-                print(f"model having arch {args.arch} with data set {args.dataset} hence using model from resnet_cifar.py")
                 import resnet_cifar as model_cifar
             #from datasets import num_classes
             args.num_classes = num_classes
             #model = model_cifar.__dict__[args.arch](args.baseclasses)
-            print('creating cifar model with class ',num_classes,sep=" => ")
             model = model_cifar.__dict__[args.arch](args.num_classes)
         else:
             print('Invalid model!')
@@ -174,8 +148,6 @@ def main_worker(gpu, ngpus_per_node, args):
         # should always set the single device scope, otherwise,
         # DistributedDataParallel will use all available devices.
         if args.gpu is not None:
-            
-            
             torch.cuda.set_device(args.gpu)
             model.cuda(args.gpu)
             # When using a single GPU per process and per
@@ -185,15 +157,11 @@ def main_worker(gpu, ngpus_per_node, args):
             args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         else:
-            
-            
             model.cuda()
             # DistributedDataParallel will divide and allocate batch_size to all
             # available GPUs if device_ids are not set
             model = torch.nn.parallel.DistributedDataParallel(model)
     elif args.gpu is not None:
-        
-        print("gpu is not None so shfting model on gpu")
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
     else:
@@ -214,7 +182,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
-            print("=> loading checkpoint since args.resume path exits")
+            print("=> loading checkpoint '{}'".format(args.resume))
             if args.gpu is None:
                 checkpoint = torch.load(args.resume)
             else:
@@ -228,7 +196,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 best_acc1 = best_acc1.to(args.gpu)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> successfully loaded checkpoint from '{}' trained on (epochs {})"
+            print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
@@ -236,10 +204,9 @@ def main_worker(gpu, ngpus_per_node, args):
     #cudnn.benchmark = True
 
     if args.evaluate:
-        validate(val_loader, model, criterion, args, print1=False)
+        validate(val_loader, model, criterion, args, print=True)
         return
-    
-    print("epochs in arg is {args.epochs} so training not happen ")
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -250,8 +217,8 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args, print1=False)
-        print('accuracy after train model for 1 epoch',acc1,sep="  =>   ")
+        acc1 = validate(val_loader, model, criterion, args, print=True)
+
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
 
@@ -293,28 +260,19 @@ def main_worker(gpu, ngpus_per_node, args):
             nc_each = (args.full_classes - args.baseclass)//args.phase
         else:
             nc_each = 0
-        
-        print(f"phases are {args.phase} so new classed introduced each time is {nc_each}")
-        
+
+        print('Training for base classes...')
         # cls re-alignment for base
         args.num_classes = args.baseclass
-        
-        print(f'Training for base classes with one epoch (AL) having classes {args.num_classes}')
 
         # R = cls_align(train_loader, model, args)
         if args.recurbase:
             R = ((1 * torch.eye(args.Hidden)).float()).cuda(args.gpu)
             R = IL_align(train_loader, model, args, R, 1)
         else:
-            
             R = cls_align(train_loader, model, args)
-          
-        print('line 289 : shape of R',R.shape,sep="=> ")
-
-        # print(val_loader,model,criterion)
-        acc1 = validate(val_loader, model, criterion, args, print1=False)
-        print('accuracy after validation is',acc1,sep='=>')
-        acc_cil.append(acc1)
+        acc1 = validate(val_loader, model, criterion, args, print=False)
+        acc_cil.append(acc1.item())
         print('Base phase {}/{}: {}%'.format(0, args.phase, acc1))
 
         # CIL for phases
@@ -340,10 +298,10 @@ def main_worker(gpu, ngpus_per_node, args):
             #train_loader = get_IL_dataset(train_loader, IL_dataset_train[phase], True)
             val_loader = get_IL_dataset(val_loader, IL_dataset_val[phase], False)
             # R = cls_align(train_loader, model, args)
-            acc1 = validate(val_loader, model, criterion, args, print1=False)
-            acc_f = validate(val_loader_base, model, criterion, args, print1=False)
-            acc_cil.append(round(acc1, 4))
-            forget_rate.append(acc_cil[0] - round(acc_f, 4))
+            acc1 = validate(val_loader, model, criterion, args, print=False)
+            acc_f = validate(val_loader_base, model, criterion, args, print=False)
+            acc_cil.append(round(acc1.item(), 4))
+            forget_rate.append(acc_cil[0] - round(acc_f.item(), 4))
             print('Phase {}/{}: {}%'.format(phase+1,args.phase,acc1))
             print('Forgeting rate for Phase {}/{}: {}%'.format(phase + 1, args.phase, forget_rate[phase]))
         avg = sum(acc_cil)/len(acc_cil)
@@ -360,7 +318,6 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
-    print('calling Train')
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -413,70 +370,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if i % args.print_freq == 0:
             progress.display(i)
 
-def GKE(X_0_cnn,beta=1,I=100):  #change I here
-    
-    X_0_ke= np.zeros((X_0_cnn.size(0),I))
-
-    for i in range(X_0_cnn.size(0)):
-
-        idx=random.randint(0, X_0_cnn.size(0)-1)
-
-        for j in range(I):
-
-            X_0_ke[i][j]=math.exp(-beta*torch.square(torch.norm(X_0_cnn[i] - X_0_cnn[idx])))
-
-    X_0_ke=torch.tensor(X_0_ke).to(device='cuda:0')
-    X_0_ke=X_0_ke.to(torch.float32)
-
-    
-    return X_0_ke
-
-
-
-def GKE2(X_0_cnn, beta=1, I=5000):  #change I here
-    
-    # print(idx)
-    idx = torch.randint(0, X_0_cnn.size(0), (I, ))
-    norms = torch.norm(X_0_cnn[:, None] - X_0_cnn[idx], dim=-1)
-    print(norms.shape)
-    X_0_ke = torch.exp(-beta * torch.square(norms))
-    print(X_0_ke.shape)
-    return X_0_ke.to(device='cuda:0').to(torch.float32)
-
-
-def GKE3(X,C,beta=10,I=5000):
-
-    X_0_ke=torch.exp(-beta*torch.norm(X[:,None] - C,dim=2))
-    return X_0_ke.to(device='cuda:0').to(torch.float32)
-
-
-
-
-
-def GKE4(X,C,beta=1,I=5000):
-    m = X.shape[0]
-    p = C.shape[0]
-    K = np.zeros((m, p))
-    
-    for i in range(m):
-        for j in range(p):
-            diff = (X[i] - C[j]).cpu()
-            K[i, j] = np.exp(-np.dot(diff, diff))
-
-    K=torch.tensor(K).to(device='cuda:0').to(torch.float32)
-    
-    return K
-
-
-
-
-
-
-
-
-
 def cls_align(train_loader, wrapped_model, args):
-    print('calling cls_align')
     if hasattr(wrapped_model, 'module'):
         model = wrapped_model.module
     else:
@@ -490,79 +384,32 @@ def cls_align(train_loader, wrapped_model, args):
     else:
         model.maxpool = nn.Sequential()
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
-    
-    new_model2 = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:1])
+                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:2])
+    model.eval()
 
-
-    # print(summary(new_model,input_size=(3, 32, 32)))
-    # print(summary(model,input_size=(3, 32, 32)))
-    #print(model.fc[-3].weight.size(1))
-
-
-    I=5000                                                 #change I here
-
-
-    auto_cor = torch.zeros(I,I).cuda(args.gpu, non_blocking=True)
-    crs_cor = torch.zeros(I, args.num_classes).cuda(args.gpu, non_blocking=True)
-
-    #print("auto crs",auto_cor.size(),crs_cor.size())
-    data=[]
-
-    
-
-    new_model.eval()
+    auto_cor = torch.zeros(model.fc[-1].weight.size(1), model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True)
+    crs_cor = torch.zeros(model.fc[-1].weight.size(1), args.num_classes).cuda(args.gpu, non_blocking=True)
 
     with torch.no_grad():
-            for epoch in range(1):
-                pbar = tqdm.tqdm(enumerate(train_loader), desc='Re-Alignment Base', total=len(train_loader), unit='batch')
-                #idx = torch.randint(0, 256, (I, )).to(device='cuda:0')
-                for i, (images, target) in pbar:
-                    images = images.cuda(args.gpu, non_blocking=True)
-                    target = target.cuda(args.gpu, non_blocking=True)
+        for epoch in range(1):
+            pbar = tqdm.tqdm(enumerate(train_loader), desc='Re-Alignment Base', total=len(train_loader), unit='batch')
+            for i, (images, target) in pbar:
+                images = images.cuda(args.gpu, non_blocking=True)
+                target = target.cuda(args.gpu, non_blocking=True)
 
-                    #X_0_cnn = new_model2(images)
-                    X_0_cnn = new_model(images)
-
-
-                    #new_activation =X_0_cnn
-                    
-                    new_activation=GKE3(X_0_cnn,C,beta=10,I=5000)  #change I here
-
-                    # print(new_activation.size())
-                    #print(new_activation.size()[0])
-                    label_onehot = F.one_hot(target, args.num_classes).float()
-                
-                    auto_cor += torch.t(new_activation) @ new_activation
-                    crs_cor += torch.t(new_activation) @ (label_onehot)
-                    # pre_output = model(images)
-                    # pre_loss = F.cross_entropy(pre_output, labels)
-                    # softmax = nn.Softmax(dim=1)
-        # R = torch.pinverse(auto_cor + args.rg * torch.eye(model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True))
-    print('shape of X0cnn in clsalign last iteratrion is',X_0_cnn.shape,sep=' => ')
+                new_activation = new_model(images)
+                label_onehot = F.one_hot(target, args.num_classes).float()
+                auto_cor += torch.t(new_activation) @ new_activation
+                crs_cor += torch.t(new_activation) @ (label_onehot)
+                # pre_output = model(images)
+                # pre_loss = F.cross_entropy(pre_output, labels)
+                # softmax = nn.Softmax(dim=1)
+    # R = torch.pinverse(auto_cor + args.rg * torch.eye(model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True))
     print('numpy inverse')
-    
-    R = np.mat(auto_cor.cpu().numpy() + args.rg * np.eye(I)).I
+    R = np.mat(auto_cor.cpu().numpy() + args.rg * np.eye(model.fc[-1].weight.size(1))).I
     R = torch.tensor(R).float().cuda(args.gpu, non_blocking=True)
     Delta = R @ crs_cor
-
-
-    # print('summary of orignal model is ')
-    # summary(model,input_size=(3,32,32))
-    # print("summary of the model is")
-    # summary(new_model,input_size=(3, 32, 32))
-
-    # print("WFCN",model.fc[-1],Delta.size(),Delta)
-    
     model.fc[-1].weight = torch.nn.parameter.Parameter(torch.t(0.9*Delta.float()))
-    #print(list(model.parameters()[-1]))
-    test_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
-    
-    test_model.eval()
-    print('after chanteing last layer ',test_model(images).shape)
-  
     return R
 
 def IL_align(train_loader, wrapped_model, args, R, repeat):
@@ -580,11 +427,9 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
     else:
         model.maxpool = nn.Sequential()
     new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
+                                    model.layer3, model.layer4, model.avgpool, Flatten(), model.fc[:2])
+    model.eval()
 
-    new_model.eval()
-
-    print('eval for new model ...')
     #auto_cor = torch.zeros(model.fc[-1].weight.size(1), model.fc[-1].weight.size(1)).cuda(args.gpu, non_blocking=True)
     #crs_cor = torch.zeros(model.fc[-1].weight.size(1), args.num_classes).cuda(args.gpu, non_blocking=True)
     W = (model.fc[-1].weight.t()).double()
@@ -596,15 +441,8 @@ def IL_align(train_loader, wrapped_model, args, R, repeat):
                 images = images.cuda(args.gpu, non_blocking=True)
                 target = target.cuda(args.gpu, non_blocking=True)
 
-                #new_activation = new_model(images)
-                X_0_cnn = new_model(images)
-               
-                new_activation=GKE3(X_0_cnn,C,beta=10,I=5000)  # change I here
-
-
+                new_activation = new_model(images)
                 new_activation = new_activation.double()
-
-
                 label_onehot = F.one_hot(target, args.num_classes).double()
 
                 R = R - R@new_activation.t()@torch.pinverse(torch.eye(images.size(0)).cuda(args.gpu, non_blocking=True) +
@@ -620,7 +458,7 @@ def cpnet(wrapped_model, train_loader, args):
     if hasattr(wrapped_model, 'module'):
         model = wrapped_model.module
     else:
-        model = wrapped_modelmodel
+        model = wrapped_model
     if hasattr(model, 'layer4'):
         pass
     else:
@@ -644,8 +482,7 @@ def cpnet(wrapped_model, train_loader, args):
     print(W_fe)
     model.fc[0].weight = torch.nn.parameter.Parameter(torch.t(W_fe.float()))
 
-
-def validate(val_loader, model, criterion, args, print1=False):
+def validate(val_loader, model, criterion, args, print=True):
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
     top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
@@ -656,152 +493,18 @@ def validate(val_loader, model, criterion, args, print1=False):
         prefix='Test: ')
 
     # switch to evaluate mode
-
-    new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
-    
-    
-    # print('Valide is Running .>>>>>>>>') 
-
-
-    new_model.eval()
-
-    with torch.no_grad():
-        # end = time.time()
-
-        # for i, (images, target) in enumerate(val_loader):
-        #     print(images.shape,'shape of image')
-        #     if args.gpu is not None:
-        #         images = images.cuda(args.gpu, non_blocking=True)
-        #     if torch.cuda.is_available():
-        #         target = target.cuda(args.gpu, non_blocking=True)
-    
-    
-        pbar = tqdm.tqdm(enumerate(val_loader), desc='solving validation error', total=len(val_loader), unit='batch')
-                #idx = torch.randint(0, 256, (I, )).to(device='cuda:0')
-        for i, (images, target) in pbar:
-            images = images.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
-
-            # print(images.shape)
-        # for i, (images, target) in enumerate(val_loader):
-        #     print(images.shape,'shape of image')
-        #     if args.gpu is not None:
-        #         images = images.cuda(args.gpu, non_blocking=True)
-        #     if torch.cuda.is_available():
-        #         target = target.cuda(args.gpu, non_blocking=True)
-
-
-            # print('inside validate the summary of new model is ')
-
-            # summary(new_model,input_size=(3,32,32))
-            
-            
-            
-            
-            X_0_cnn = new_model(images)
-            # print(X_0_cnn)
-               
-            output=GKE3(X_0_cnn,C,beta=10,I=5000)
-            #output= new_model2(output)
-
-            # print(output)
-            # print(f"output shape: {output.shape} , images shape: {images.shape} ,X0_cnn shape :{X_0_cnn.shape} ,model fc shape : {model.fc[-1].weight.shape}")
-            output = torch.matmul(output,model.fc[-1].weight.t())
-
-            # print("validate",output.size())
-            
-        
-
-            
-          
-
-
-            if isinstance(criterion, nn.MSELoss):
-                target_onehot = F.one_hot(target, args.num_classes).float()
-            else:
-                target_onehot = target
-
-            loss = criterion(output, target_onehot)
-    
-    if print1:
-        with open(os.path.join(args.dirname, 'args.txt'), 'a+') as file:
-            file.write(str(round(top1.avg.item(),4)) + '\n')
-
-    #print('validation function ends ')
-
-    return top1.avg
-
-def validate_old(val_loader, model, criterion, args, print1=False):
-    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
-    losses = AverageMeter('Loss', ':.4e', Summary.NONE)
-    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
-    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
-    progress = ProgressMeter(
-        len(val_loader),
-        [batch_time, losses, top1, top5],
-        prefix='Test: ')
-
-    # switch to evaluate mode
-
-    new_model = torch.nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2,
-                                    model.layer3, model.layer4, model.avgpool, Flatten())#, model.fc[:2])
-    
-    
-    # print('Valide is Running .>>>>>>>>') 
-
-
-    new_model.eval()
+    model.eval()
 
     with torch.no_grad():
         end = time.time()
-
         for i, (images, target) in enumerate(val_loader):
-            print(images.shape,'shape of image')
             if args.gpu is not None:
                 images = images.cuda(args.gpu, non_blocking=True)
             if torch.cuda.is_available():
                 target = target.cuda(args.gpu, non_blocking=True)
-    
-    
-        pbar = tqdm.tqdm(enumerate(val_loader), desc='solving validation error', total=len(val_loader), unit='batch')
-                #idx = torch.randint(0, 256, (I, )).to(device='cuda:0')
-        for i, (images, target) in pbar:
-            images = images.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
-        # for i, (images, target) in enumerate(val_loader):
-        #     print(images.shape,'shape of image')
-            # if args.gpu is not None:
-            #     images = images.cuda(args.gpu, non_blocking=True)
-            # if torch.cuda.is_available():
-            #     target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-
-            print('inside validate the summary of new model is ')
-
-            summary(new_model,input_size=(3,32,32))
-            
-            
-            
-            X_0_cnn = new_model(images)
-            print(X_0_cnn.size())
-               
-            output=GKE3(X_0_cnn,C,beta=10,I=5000)
-            #output= new_model2(output)
-
-            print(output)
-
-            output = torch.dot(output,model.fc[-1].weight)
-
-            print("validate",output.size())
-
-            
-            #output = model(images)
-
-            #print(model.type())
-
-
+            output = model(images)
             if isinstance(criterion, nn.MSELoss):
                 target_onehot = F.one_hot(target, args.num_classes).float()
             else:
