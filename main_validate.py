@@ -334,7 +334,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     LR = AverageMeter('lr', ':6.3f') # todo: val not avg
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time.item(), data_time.item(), losses.item(), top1.item(), top5.item(), LR.item()],
+        [batch_time, data_time, losses, top1, top5, LR],
         prefix="Epoch: [{}]".format(epoch))
 
     # switch to train mode
@@ -377,7 +377,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         with open('Base_training.csv', 'a', newline='') as csvfile:
           writer = csv.writer(csvfile)
-          writer.writerow([batch_time.item(), data_time.item(), losses.item(), top1.item(), top5.item(), LR.item()])
+          writer.writerow([batch_time, data_time, losses, top1, top5, LR])
 
 
 
