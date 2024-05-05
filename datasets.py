@@ -58,6 +58,7 @@ if args.dataset == 'cifar100':
                                              batch_size=args.batch_size,
                                              shuffle=False, **kwargs)
 
+
 elif args.dataset == 'tiny-imagenet':
     input_dim = 64
     input_ch = 3
@@ -108,6 +109,36 @@ elif args.dataset == 'imagenet100':
     val_loader = torch.utils.data.DataLoader(
         dataset_val,
         batch_size=args.batch_size, shuffle=False, **kwargs)
+
+elif args.dataset == 'cub200':
+    input_dim = 224
+    input_ch = 3
+    num_classes = 200
+
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    ])
+    dataset_train = datasets.ImageFolder('../train_folder', transform=train_transform)
+    labels = np.array([a[1] for a in dataset_train.samples])
+    train_loader = torch.utils.data.DataLoader(dataset=dataset_train,
+                                               batch_size=args.batch_size,
+                                               shuffle=True,
+                                               **kwargs)
+
+    dataset_val = datasets.ImageFolder('../test_folder',
+                             transforms.Compose([
+                                 transforms.Resize(256),
+                                 transforms.CenterCrop(224),
+                                 transforms.ToTensor(),
+                                 transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+                             ]))
+    val_loader = torch.utils.data.DataLoader(
+        dataset_val,
+        batch_size=args.batch_size, shuffle=False, **kwargs)
+
 
 elif args.dataset == 'imagenet':
     input_dim = 224
