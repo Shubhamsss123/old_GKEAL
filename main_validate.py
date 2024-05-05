@@ -377,14 +377,14 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         end = time.time()
       
 
-        with open(os.path.join(args.dirname, 'Base_training.csv'), 'a', newline='') as csvfile:
-          writer = csv.writer(csvfile)
-          writer.writerow([batch_time, data_time, losses, top1, top5, LR])
 
 
 
         if i % args.print_freq == 0:
             progress.display(i)
+    with open(os.path.join(args.dirname, 'Base_training.csv'), 'a', newline='') as csvfile:
+      writer = csv.writer(csvfile)
+      writer.writerow([epoch,batch_time.get_item(), data_time.get_item(), losses.get_item(), top1.get_item().item(), top5.get_item().item(), LR.get_item()])
 
 def cls_align(train_loader, wrapped_model, args):
     if hasattr(wrapped_model, 'module'):
@@ -544,9 +544,9 @@ def validate(val_loader, model, criterion, args, print=True):
 
         progress.display_summary()
         
-        with open(os.path.join(args.dirname, 'Base_Validation.csv'), 'a', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow([batch_time, losses, top1, top5])
+    with open(os.path.join(args.dirname, 'Base_Validation.csv'), 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow([batch_time.get_item(), losses.get_item(), top1.get_item().item(), top5.get_item().item()])
     if print:
         with open(os.path.join(args.dirname, 'args.txt'), 'a+') as file:
             file.write(str(round(top1.avg.item(),4)) + '\n')
@@ -576,7 +576,7 @@ class AverageMeter(object):
         self.fmt = fmt
         self.summary_type = summary_type
         self.reset()
-
+        # print(self.__dict__,'dictionary')
     def reset(self):
         self.val = 0
         self.avg = 0
@@ -588,7 +588,8 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
+    def get_item(self):
+      return self.__dict__['val']
     def __str__(self):
         fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmtstr.format(**self.__dict__)
