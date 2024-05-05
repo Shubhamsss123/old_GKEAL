@@ -38,10 +38,10 @@ def main():
         print(args.dirname)
     else:
         print('creating model saving dir!')
-        dirname = ''
+        dirname = '../'
         dirname = os.path.join(dirname, 'save_model')
-        dirname = os.path.join(dirname, args.dataset)
-        dirname = os.path.join(dirname, args.arch)
+        # dirname = os.path.join(dirname, args.dataset)
+        # dirname = os.path.join(dirname, args.arch)
         dirname = dirname.replace("\\", "/")
         import datetime
         import numpy as np
@@ -303,7 +303,7 @@ def main_worker(gpu, ngpus_per_node, args):
             acc1 = validate(val_loader, model, criterion, args, print=False)
             acc_f = validate(val_loader_base, model, criterion, args, print=False)
             acc_cil.append(round(acc1.item(), 4))
-            with open('Base_acc.csv', 'a', newline='') as csvfile:
+            with open(os.path.join(args.dirname, 'Base_acc.csv'), 'a', newline='') as csvfile:
               writer = csv.writer(csvfile)
               writer.writerow([acc_f.item()])
               
@@ -316,7 +316,8 @@ def main_worker(gpu, ngpus_per_node, args):
         print('The average accuracy: {}'.format(avg))
         ### writing it
         import csv
-        with open(args.dataset + args.arch + '_' + str(args.phase) + '.csv', mode='a+', encoding="ISO-8859-1", newline='') as file:
+        
+        with open(os.path.join(args.dirname, args.dataset + args.arch + '_' + str(args.phase) + '.csv'), mode='a+', encoding="ISO-8859-1", newline='') as file:
             data = tuple(acc_cil) + ('-',) + tuple([avg]) + ('-',) + tuple(forget_rate) + ('-',) + (str(args),)
             wr = csv.writer(file)
             wr.writerow(data)
@@ -374,8 +375,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
+      
 
-        with open('Base_training.csv', 'a', newline='') as csvfile:
+        with open(os.path.join(args.dirname, 'Base_training.csv'), 'a', newline='') as csvfile:
           writer = csv.writer(csvfile)
           writer.writerow([batch_time, data_time, losses, top1, top5, LR])
 
@@ -541,7 +543,8 @@ def validate(val_loader, model, criterion, args, print=True):
                 progress.display(i)
 
         progress.display_summary()
-        with open('Base_Validation.csv', 'a', newline='') as csvfile:
+        
+        with open(os.path.join(args.dirname, 'Base_Validation.csv'), 'a', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow([batch_time, losses, top1, top5])
     if print:
