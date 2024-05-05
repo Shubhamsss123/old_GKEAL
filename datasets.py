@@ -91,14 +91,14 @@ elif args.dataset == 'imagenet100':
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
-    dataset_train = datasets.ImageFolder('../../data/seed_1993_subset_100_imagenet/train', transform=train_transform)
+    dataset_train = datasets.ImageFolder('../train_folder', transform=train_transform)
     labels = np.array([a[1] for a in dataset_train.samples])
     train_loader = torch.utils.data.DataLoader(dataset=dataset_train,
                                                batch_size=args.batch_size,
                                                shuffle=True,
                                                **kwargs)
 
-    dataset_val = datasets.ImageFolder('../../data/seed_1993_subset_100_imagenet/val',
+    dataset_val = datasets.ImageFolder('../test_folder',
                              transforms.Compose([
                                  transforms.Resize(256),
                                  transforms.CenterCrop(224),
