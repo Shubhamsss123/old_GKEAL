@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torchvision import datasets, transforms
-from main import args
+from main_validate import args
 import random
 import copy
 from uni_sampling import small_batch_dataloader

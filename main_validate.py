@@ -126,7 +126,7 @@ def main_worker(gpu, ngpus_per_node, args):
         model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        if args.dataset in ['tiny-imagenet','imagenet', 'imagenet100']:
+        if args.dataset in ['tiny-imagenet','imagenet', 'imagenet100','cub200']:
             model = models.__dict__[args.arch](num_classes)
             args.num_classes = num_classes
         elif args.dataset in ['cifar10', 'cifar100']:
