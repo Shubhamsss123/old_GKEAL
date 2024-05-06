@@ -30,7 +30,6 @@ def main():
     print(args)
     if args.resume:
         print('loading model saving directory!')
-        print(args.resume)
         if 'model_best.pth.tar' in args.resume:
             dirname = args.resume.replace('/model_best.pth.tar', '')
         elif 'checkpoint.pth.tar' in args.resume:
@@ -39,10 +38,10 @@ def main():
         print(args.dirname)
     else:
         print('creating model saving dir!')
-        dirname = '../'
+        dirname = ''
         dirname = os.path.join(dirname, 'save_model')
-        # dirname = os.path.join(dirname, args.dataset)
-        # dirname = os.path.join(dirname, args.arch)
+        dirname = os.path.join(dirname, args.dataset)
+        dirname = os.path.join(dirname, args.arch)
         dirname = dirname.replace("\\", "/")
         import datetime
         import numpy as np
@@ -207,10 +206,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.evaluate:
         validate(val_loader, model, criterion, args, print=True)
         return
-    print(f'{args.start_epoch} {args.epochs} epochs start and end ')
-    if not args.basetraining:
-      args.start_epoch=151
-      print('start epoch changed to 151')
+    
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
@@ -304,15 +300,12 @@ def main_worker(gpu, ngpus_per_node, args):
               #train_loader = get_IL_dataset(train_loader, IL_dataset_train[phase], True)
             val_loader = get_IL_dataset(val_loader, IL_dataset_val[phase], False)
               # R = cls_align(train_loader, model, args)
-            acc_incremental=validate(IL_dataset_val[phase], model, criterion, args, print=False)
             acc1 = validate(val_loader, model, criterion, args, print=False)
             acc_f = validate(val_loader_base, model, criterion, args, print=False)
             acc_cil.append(round(acc1.item(), 4))
-            with open(os.path.join(args.dirname, 'cu200_acc.csv'), 'a', newline='') as csvfile:
+            with open('Base_acc.csv', 'a', newline='') as csvfile:
               writer = csv.writer(csvfile)
-              if phase == 0:
-                writer.writerow(['base accuracy','full accuracy','incremental accuracy'])
-              writer.writerow([acc_f.item(),acc1.item(),acc_incremental.item()])
+              writer.writerow([acc_f.item()])
               
 
             forget_rate.append(acc_cil[0] - round(acc_f.item(), 4))
@@ -323,8 +316,7 @@ def main_worker(gpu, ngpus_per_node, args):
         print('The average accuracy: {}'.format(avg))
         ### writing it
         import csv
-        
-        with open(os.path.join(args.dirname, args.dataset + args.arch + '_' + str(args.phase) + '.csv'), mode='a+', encoding="ISO-8859-1", newline='') as file:
+        with open(args.dataset + args.arch + '_' + str(args.phase) + '.csv', mode='a+', encoding="ISO-8859-1", newline='') as file:
             data = tuple(acc_cil) + ('-',) + tuple([avg]) + ('-',) + tuple(forget_rate) + ('-',) + (str(args),)
             wr = csv.writer(file)
             wr.writerow(data)
@@ -382,16 +374,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
-      
 
+        with open('Base_training.csv', 'a', newline='') as csvfile:
+          writer = csv.writer(csvfile)
+          writer.writerow([batch_time, data_time, losses, top1, top5, LR])
 
 
 
         if i % args.print_freq == 0:
             progress.display(i)
-    with open(os.path.join(args.dirname, 'Base_training.csv'), 'a', newline='') as csvfile:
-      writer = csv.writer(csvfile)
-      writer.writerow([epoch,batch_time.get_item(), data_time.get_item(), losses.get_item(), top1.get_item().item(), top5.get_item().item(), LR.get_item()])
 
 def cls_align(train_loader, wrapped_model, args):
     if hasattr(wrapped_model, 'module'):
@@ -550,10 +541,9 @@ def validate(val_loader, model, criterion, args, print=True):
                 progress.display(i)
 
         progress.display_summary()
-        
-    with open(os.path.join(args.dirname, 'Base_Validation.csv'), 'a', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow([batch_time.get_item(), losses.get_item(), top1.get_item().item(), top5.get_item().item()])
+        with open('Base_Validation.csv', 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([batch_time, losses, top1, top5])
     if print:
         with open(os.path.join(args.dirname, 'args.txt'), 'a+') as file:
             file.write(str(round(top1.avg.item(),4)) + '\n')
@@ -583,7 +573,7 @@ class AverageMeter(object):
         self.fmt = fmt
         self.summary_type = summary_type
         self.reset()
-        # print(self.__dict__,'dictionary')
+
     def reset(self):
         self.val = 0
         self.avg = 0
@@ -595,8 +585,7 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-    def get_item(self):
-      return self.__dict__['val']
+
     def __str__(self):
         fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmtstr.format(**self.__dict__)
