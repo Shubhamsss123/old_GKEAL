@@ -308,11 +308,7 @@ def main_worker(gpu, ngpus_per_node, args):
             acc1 = validate(val_loader, model, criterion, args, print=False)
             acc_f = validate(val_loader_base, model, criterion, args, print=False)
             acc_cil.append(round(acc1.item(), 4))
-<<<<<<< HEAD
             with open(os.path.join(args.dirname, 'cu200_acc.csv'), 'a', newline='') as csvfile:
-=======
-            with open(os.path.join(args.dirname, 'Base_acc.csv'), 'a', newline='') as csvfile:
->>>>>>> 482e399c9777cc26ab3bc7a8120a81e3c54668b3
               writer = csv.writer(csvfile)
               if phase == 0:
                 writer.writerow(['base accuracy','full accuracy','incremental accuracy'])
