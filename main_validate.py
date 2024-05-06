@@ -304,19 +304,20 @@ def main_worker(gpu, ngpus_per_node, args):
               #train_loader = get_IL_dataset(train_loader, IL_dataset_train[phase], True)
             val_loader = get_IL_dataset(val_loader, IL_dataset_val[phase], False)
               # R = cls_align(train_loader, model, args)
-            acc_incremental=validate(IL_dataset_val[phase], model, criterion, args, print=False)
-            acc1 = validate(val_loader, model, criterion, args, print=False)
-            acc_f = validate(val_loader_base, model, criterion, args, print=False)
-            acc_cil.append(round(acc1.item(), 4))
+            acc_incremental1,acc_incremental5=validate_incremental(IL_dataset_val[phase], model, criterion, args, print=False)
+            acc_full1,acc_full5 = validate_incremental(val_loader, model, criterion, args, print=False)
+            acc_base1,acc_base5 = validate_incremental(val_loader_base, model, criterion, args, print=False)
+
+            acc_cil.append(round(acc_full1.item(), 4))
             with open(os.path.join(args.dirname, 'cu200_acc.csv'), 'a', newline='') as csvfile:
               writer = csv.writer(csvfile)
               if phase == 0:
-                writer.writerow(['base accuracy','full accuracy','incremental accuracy'])
-              writer.writerow([acc_f.item(),acc1.item(),acc_incremental.item()])
+                writer.writerow(['phase','base_acc1','base_acc5','full_acc1','full_acc5','incre_acc1','incre_acc5','forget_rate'])
+              writer.writerow([phase,acc_base1.item(),acc_base5.item(),acc_full1.item(),acc_full5.item(),acc_incremental1.item(),acc_incremental5.item(),acc_cil[0] - round(acc_base1.item(), 4)])
               
 
-            forget_rate.append(acc_cil[0] - round(acc_f.item(), 4))
-            print('Accuracy on Base class:',round(acc_f.item(), 4))
+            forget_rate.append(acc_cil[0] - round(acc_base1.item(), 4))
+            print('Accuracy on Base class:',round(acc_base1.item(), 4))
             print('Phase {}/{}: {}%'.format(phase+1,args.phase,acc1))
             print('Forgeting rate for Phase {}/{}: {}%'.format(phase + 1, args.phase, forget_rate[phase]))
         avg = sum(acc_cil)/len(acc_cil)
@@ -559,6 +560,61 @@ def validate(val_loader, model, criterion, args, print=True):
             file.write(str(round(top1.avg.item(),4)) + '\n')
 
     return top1.avg
+
+def validate_incremental(val_loader, model, criterion, args, print=True):
+    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+    losses = AverageMeter('Loss', ':.4e', Summary.NONE)
+    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
+    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top5],
+        prefix='Test: ')
+
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (images, target) in enumerate(val_loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            if torch.cuda.is_available():
+                target = target.cuda(args.gpu, non_blocking=True)
+
+            # compute output
+            output = model(images)
+            if isinstance(criterion, nn.MSELoss):
+                target_onehot = F.one_hot(target, args.num_classes).float()
+            else:
+                target_onehot = target
+
+            loss = criterion(output, target_onehot)
+
+            # measure accuracy and record loss
+            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+
+        progress.display_summary()
+        
+    with open(os.path.join(args.dirname, 'Base_Validation.csv'), 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow([batch_time.get_item(), losses.get_item(), top1.get_item().item(), top5.get_item().item()])
+    if print:
+        with open(os.path.join(args.dirname, 'args.txt'), 'a+') as file:
+            file.write(str(round(top1.avg.item(),4)) + '\n')
+
+    return top1.avg,top5.avg
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
